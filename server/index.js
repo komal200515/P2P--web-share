@@ -39,10 +39,17 @@ io.on('connection', (socket) => {
       socket.emit('join-error', { message: 'Room not found. Check the code and try again.' });
       return;
     }
-    if (room.receiverId) {
-      socket.emit('join-error', { message: 'Room is already full.' });
-      return;
-    }
+if (room.receiverId) {
+  const receiverSocket = io.sockets.sockets.get(room.receiverId);
+
+  if (receiverSocket?.connected) {
+    socket.emit("join-error", { message: "Room is already full." });
+    return;
+  }
+
+  // old receiver disconnected, so clear stale receiver
+  room.receiverId = null;
+}
     room.receiverId = socket.id;
     socket.join(roomId);
     // Tell sender someone joined
