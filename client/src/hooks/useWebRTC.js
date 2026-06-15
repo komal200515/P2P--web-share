@@ -233,24 +233,22 @@ export function useWebRTC(socket) {
   //      guaranteeing the receiver's RTCPeerConnection is ready first.
   // ─────────────────────────────────────────────────────────────────────────────
 
-  const startReceiver = () => {
-    isSenderRef.current = false;
-    setConnectionStatus("waiting");
-    setStatus("Joining room — waiting for sender...");
+ const startReceiver = () => {
+  isSenderRef.current = false;
+  setConnectionStatus("waiting");
+  setStatus("Waiting for sender...");
 
-    const pc = createPeer();
+  const pc = createPeer();
 
-    pc.ondatachannel = (event) => {
-      attachChannel(event.channel);
-      event.channel.onopen = () => {
-        setConnectionStatus("connected");
-        setStatus("Connected. Waiting for file...");
-      };
+  pc.ondatachannel = (event) => {
+    attachChannel(event.channel);
+
+    event.channel.onopen = () => {
+      setConnectionStatus("connected");
+      setStatus("Connected. Waiting for file...");
     };
-
-    // Tell the server a receiver has joined; server will notify the sender
-    socket.emit("join-room", { roomId: roomIdRef.current });
   };
+};
 
   // Signalling: receiver processes the sender's SDP offer and replies with an answer
   const handleOffer = async (offer) => {
@@ -379,6 +377,6 @@ export function useWebRTC(socket) {
     handleOffer,
     handleAnswer,
     handleIceCandidate,
-    handleReceiverJoined, // ← new: wire this to the "receiver-joined" socket event
+    handleReceiverJoined, // ← new: wire this to the "receiveoined" socket event
   };
 }

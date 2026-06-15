@@ -10,7 +10,7 @@ import { useWebRTC } from "./hooks/useWebRTC";
 const socket = io(
   import.meta.env.DEV
     ? "http://localhost:3000"
-    : "https://p2p-web-share-c956.onrender.com"
+    : "https://p2p-web-share-c956.onrender.com",
 );
 
 // Visual connection status badge — renders a colored dot + label for each state
@@ -54,8 +54,8 @@ function App() {
   // file + roomId are held in both React state (for UI) and WebRTC refs (for sending)
   const [file, setFileState] = useState(null);
   const [roomId, setRoomIdState] = useState("");
-  const [joinCode, setJoinCode] = useState("");   // controlled input for the receiver's code entry
-  const [message, setMessage] = useState("");     // one-line status/error banner
+  const [joinCode, setJoinCode] = useState(""); // controlled input for the receiver's code entry
+  const [message, setMessage] = useState(""); // one-line status/error banner
   const [userRole, setUserRole] = useState("none"); // "none" | "sender" | "receiver"
 
   // WebRTC state and actions
@@ -77,6 +77,7 @@ function App() {
     handleOffer,
     handleAnswer,
     handleIceCandidate,
+    handleReceiverJoined,
   } = useWebRTC(socket);
 
   // Refs keep the latest function closures accessible inside socket listeners
@@ -86,6 +87,7 @@ function App() {
   const handleOfferRef = useRef(handleOffer);
   const handleAnswerRef = useRef(handleAnswer);
   const handleIceCandidateRef = useRef(handleIceCandidate);
+  const handleReceiverJoinedRef = useRef(handleReceiverJoined);
 
   // Keep refs synced with latest hook functions after every render
   useEffect(() => {
@@ -94,6 +96,7 @@ function App() {
     handleOfferRef.current = handleOffer;
     handleAnswerRef.current = handleAnswer;
     handleIceCandidateRef.current = handleIceCandidate;
+    handleReceiverJoinedRef.current = handleReceiverJoined;
   });
 
   // Register signaling events once on mount; clean up all listeners on unmount
@@ -103,6 +106,7 @@ function App() {
       setRoomIdState(roomId);
       setRoomId(roomId);
       setMessage("Room created. Share this code with the receiver.");
+      startSenderRef.current();
     });
 
     // Receiver entered a valid code — store room and start the WebRTC receiver flow
@@ -116,26 +120,22 @@ function App() {
     // Server tells the sender someone joined — kick off the sender WebRTC flow
     socket.on("receiver-joined", () => {
       setMessage("Receiver joined. Starting transfer...");
-      startSenderRef.current();
+      handleReceiverJoinedRef.current();
     });
 
     // WebRTC signaling messages — forwarded directly into the hook
-    socket.on("offer", ({ offer }) =>
-      handleOfferRef.current(offer)
-    );
+    socket.on("offer", ({ offer }) => handleOfferRef.current(offer));
 
-    socket.on("answer", ({ answer }) =>
-      handleAnswerRef.current(answer)
-    );
+    socket.on("answer", ({ answer }) => handleAnswerRef.current(answer));
 
     socket.on("ice-candidate", ({ candidate }) =>
-      handleIceCandidateRef.current(candidate)
+      handleIceCandidateRef.current(candidate),
     );
 
     // Simple server-side status events
-    socket.on("join-error",        ({ message }) => setMessage(message));
-    socket.on("transfer-done",     ()            => setMessage("Transfer completed."));
-    socket.on("peer-disconnected", ()            => setMessage("Peer disconnected."));
+    socket.on("join-error", ({ message }) => setMessage(message));
+    socket.on("transfer-done", () => setMessage("Transfer completed."));
+    socket.on("peer-disconnected", () => setMessage("Peer disconnected."));
 
     // Remove all listeners on unmount to prevent memory leaks / duplicate handlers
     return () => {
@@ -184,16 +184,13 @@ function App() {
 
   return (
     <div className="min-h-screen bg-[#0a0a0f] text-white font-sans">
-
       {/* Application header — logo left, live connection badge right */}
       <header className="border-b border-zinc-800/60 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-violet-600 flex items-center justify-center text-sm font-bold">
             P
           </div>
-          <span className="font-semibold tracking-tight">
-            P2P Share
-          </span>
+          <span className="font-semibold tracking-tight">P2P Share</span>
         </div>
 
         <ConnectionBadge status={connectionStatus} />
@@ -210,13 +207,12 @@ function App() {
         </h1>
 
         <p className="text-zinc-500 max-w-sm mx-auto text-sm">
-          End-to-end encrypted transfers via WebRTC.
-          Your file never touches our servers.
+          End-to-end encrypted transfers via WebRTC. Your file never touches our
+          servers.
         </p>
       </div>
 
       <main className="max-w-4xl mx-auto p-6 space-y-4">
-
         {/* System notification banner — hidden when message is empty */}
         {message && (
           <div className="px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-xl text-sm text-zinc-400">
@@ -241,7 +237,7 @@ function App() {
             transferSpeed={transferSpeed}
             eta={eta}
             senderHash={senderHash}
-            userRole={userRole}  // lets SenderView dim/disable itself when role is "receiver"
+            userRole={userRole} // lets SenderView dim/disable itself when role is "receiver"
           />
 
           <ReceiverView
