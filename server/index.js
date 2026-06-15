@@ -3,13 +3,11 @@ const http = require('http');
 const { Server } = require('socket.io');
 const { v4: uuidv4 } = require('uuid');
 const cors = require('cors');
-const path = require('path');
+
 
 const app = express();
 app.use(cors());
 
-// Serve the client folder in production
-app.use(express.static(path.join(__dirname, '../client')));
 
 const server = http.createServer(app);
 const io = new Server(server, {
