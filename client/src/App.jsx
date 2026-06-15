@@ -1,20 +1,42 @@
 import { useEffect, useRef, useState } from "react";
 import { io } from "socket.io-client";
-import DropZone from "./components/DropZone";
+import ChatBox from "./components/ChatBox";
+import SenderView from "./components/senderview";
+import ReceiverView from "./components/receiverView";
 import { useWebRTC } from "./hooks/useWebRTC";
 
+// Socket connection to signaling server
 const socket = io("http://localhost:3000");
+
+// Visual connection status badge
+function ConnectionBadge({ status }) {
+  const config = {
+    connected:    { dot: "bg-green-400",               ring: "ring-green-500/30",  text: "text-green-400",  label: "Connected"    },
+    waiting:      { dot: "bg-yellow-400 animate-pulse", ring: "ring-yellow-500/30", text: "text-yellow-400", label: "Waiting"      },
+    disconnected: { dot: "bg-zinc-500",                ring: "ring-zinc-600/30",   text: "text-zinc-400",   label: "Disconnected" },
+  };
+  const c = config[status] || config.disconnected;
+
+  return (
+    <span className={`inline-flex items-center gap-2 px-3 py-1 rounded-full text-xs font-medium ring-1 ${c.ring} bg-zinc-900`}>
+      <span className={`w-2 h-2 rounded-full ${c.dot}`} />
+      <span className={c.text}>{c.label}</span>
+    </span>
+  );
+}
 
 function App() {
   const [file, setFileState] = useState(null);
   const [roomId, setRoomIdState] = useState("");
   const [joinCode, setJoinCode] = useState("");
   const [message, setMessage] = useState("");
-  const [chatText, setChatText] = useState("");
-
+  // WebRTC state and actions
   const {
     progress,
     status,
+    connectionStatus,
+    transferSpeed,
+    eta,
     senderHash,
     receiverHash,
     verified,
@@ -29,8 +51,7 @@ function App() {
     handleIceCandidate,
   } = useWebRTC(socket);
 
-  // FIX: Keep refs to the latest versions of these functions so the
-  // socket listeners (registered once) always call the current version.
+  // Keep refs fresh so socket listeners never go stale
   const startSenderRef = useRef(startSender);
   const startReceiverRef = useRef(startReceiver);
   const handleOfferRef = useRef(handleOffer);
@@ -44,233 +65,128 @@ function App() {
     handleAnswerRef.current = handleAnswer;
     handleIceCandidateRef.current = handleIceCandidate;
   });
-
+     // Register signaling events
   useEffect(() => {
     socket.on("room-created", ({ roomId }) => {
       setRoomIdState(roomId);
       setRoomId(roomId);
       setMessage("Room created. Share this code with the receiver.");
     });
-
     socket.on("join-success", ({ roomId }) => {
       setRoomIdState(roomId);
       setRoomId(roomId);
       setMessage("Joined room. Waiting for sender...");
-      // FIX: Call via ref so we always get the latest version
       startReceiverRef.current();
     });
-
     socket.on("receiver-joined", () => {
       setMessage("Receiver joined. Starting transfer...");
       startSenderRef.current();
     });
-
-    socket.on("offer", ({ offer }) => handleOfferRef.current(offer));
-    socket.on("answer", ({ answer }) => handleAnswerRef.current(answer));
-    socket.on("ice-candidate", ({ candidate }) =>
-      handleIceCandidateRef.current(candidate)
-    );
-
-    socket.on("join-error", ({ message }) => setMessage(message));
-    socket.on("transfer-done", () => setMessage("Transfer completed."));
-    socket.on("peer-disconnected", () => setMessage("Peer disconnected."));
+    socket.on("offer",         ({ offer })     => handleOfferRef.current(offer));
+    socket.on("answer",        ({ answer })    => handleAnswerRef.current(answer));
+    socket.on("ice-candidate", ({ candidate }) => handleIceCandidateRef.current(candidate));
+    socket.on("join-error",    ({ message })   => setMessage(message));
+    socket.on("transfer-done", ()              => setMessage("Transfer completed."));
+    socket.on("peer-disconnected", ()          => setMessage("Peer disconnected."));
 
     return () => {
-      socket.off("room-created");
-      socket.off("join-success");
-      socket.off("receiver-joined");
-      socket.off("offer");
-      socket.off("answer");
-      socket.off("ice-candidate");
-      socket.off("join-error");
-      socket.off("transfer-done");
-      socket.off("peer-disconnected");
+      ["room-created","join-success","receiver-joined","offer","answer",
+       "ice-candidate","join-error","transfer-done","peer-disconnected"]
+        .forEach((e) => socket.off(e));
     };
-  }, []); // Runs once — refs keep the callbacks fresh
+  }, []);
 
+  // Store selected file locally and in WebRTC hook
   const handleFileSelect = (selectedFile) => {
     setFileState(selectedFile);
     setFile(selectedFile);
   };
-
+  // Create a sharing room
   const createRoom = () => {
-    if (!file) {
-      setMessage("Please select a file first.");
-      return;
-    }
+    if (!file) { setMessage("Please select a file first."); return; }
     socket.emit("create-room");
   };
 
   const joinRoom = () => {
     const code = joinCode.trim().toUpperCase();
-    if (code.length !== 8) {
-      setMessage("Room code must be 8 characters.");
-      return;
-    }
+    if (code.length !== 8) { setMessage("Room code must be 8 characters."); return; }
     socket.emit("join-room", { roomId: code });
   };
 
-  const handleSendChat = () => {
-    sendChat(chatText);
-    setChatText("");
-  };
-
   return (
-    <div className="min-h-screen bg-black text-white">
-      <header className="border-b border-zinc-800 p-4">
-        <h1 className="text-2xl font-bold">P2P Share</h1>
+    <div className="min-h-screen bg-[#0a0a0f] text-white font-sans">
+
+      {/* Header */}
+      <header className="border-b border-zinc-800/60 px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-violet-600 flex items-center justify-center text-sm font-bold">
+            P
+          </div>
+          <span className="font-semibold tracking-tight">P2P Share</span>
+        </div>
+        <ConnectionBadge status={connectionStatus} />
       </header>
 
-      <main className="max-w-5xl mx-auto p-6">
-        <h2 className="text-4xl font-bold mb-4">
-          File transfer, no middleman.
-        </h2>
-
-        <p className="text-zinc-400 mb-8">
-          Files travel directly between browsers using WebRTC.
+      {/* Hero sectioncd */}
+      <div className="border-b border-zinc-800/40 px-6 py-12 text-center">
+        <p className="text-xs font-semibold tracking-widest text-violet-400 uppercase mb-3">
+          No servers. No limits.
         </p>
+        <h1 className="text-5xl font-bold tracking-tight mb-3 bg-gradient-to-br from-white to-zinc-400 bg-clip-text text-transparent">
+          Send files directly.
+        </h1>
+        <p className="text-zinc-500 max-w-sm mx-auto text-sm">
+          End-to-end encrypted transfers via WebRTC. Your file never touches our servers.
+        </p>
+      </div>
 
-        <div className="grid md:grid-cols-2 gap-6">
-          {/* Send Panel */}
-          <div className="border border-zinc-800 rounded-xl p-6">
-            <h3 className="text-xl font-semibold mb-4">Send File</h3>
+      <main className="max-w-4xl mx-auto p-6 space-y-4">
 
-            <DropZone onFileSelect={handleFileSelect} />
-
-            {file && (
-              <div className="mt-4 p-4 border border-zinc-700 rounded-lg">
-                <p className="font-medium">{file.name}</p>
-                <p className="text-zinc-400 text-sm">
-                  {(file.size / 1024 / 1024).toFixed(2)} MB
-                </p>
-              </div>
-            )}
-
-            <button
-              onClick={createRoom}
-              className="mt-5 w-full px-6 py-3 bg-violet-600 rounded-lg hover:bg-violet-500"
-            >
-              Generate Share Code
-            </button>
-
-            {roomId && (
-              <div className="mt-4 p-4 bg-zinc-900 rounded-lg text-center">
-                <p className="text-zinc-400 text-sm">Room Code</p>
-                <button
-  onClick={() => navigator.clipboard.writeText(roomId)}
-  className="mt-3 px-4 py-2 bg-zinc-800 rounded-lg hover:bg-zinc-700 text-sm"
->
-  Copy Code
-</button>
-                <p className="text-3xl font-bold tracking-widest text-violet-400">
-                  {roomId}
-                </p>
-              </div>
-            )}
+        {/* Info message */}
+        {message && (
+          <div className="px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-xl text-sm text-zinc-400">
+            {message}
           </div>
+        )}
 
-          {/* Receive Panel */}
-          <div className="border border-zinc-800 rounded-xl p-6">
-            <h3 className="text-xl font-semibold mb-4">Receive File</h3>
-
-            <input
-              value={joinCode}
-              onChange={(e) => setJoinCode(e.target.value.toUpperCase())}
-              maxLength={8}
-              placeholder="Enter room code"
-              className="w-full p-3 rounded-lg bg-zinc-900 border border-zinc-700 text-center tracking-widest outline-none"
-            />
-
-            <button
-              onClick={joinRoom}
-              className="mt-5 w-full px-6 py-3 bg-green-600 rounded-lg hover:bg-green-500"
-            >
-              Join Room
-            </button>
-          </div>
+        {/* Status row */}
+        <div className="flex items-center justify-between px-1">
+          <p className="text-xs text-zinc-600">{status}</p>
+          <ConnectionBadge status={connectionStatus} />
         </div>
 
-        {/* Status Panel */}
-        <div className="mt-6 p-4 bg-zinc-900 border border-zinc-700 rounded-lg">
-          <p>
-            <span className="text-zinc-400">Status:</span> {status}
-          </p>
-          <p>
-            <span className="text-zinc-400">Message:</span> {message}
-          </p>
+        {/* Sender + Receiver side by side */}
+        <div className="grid md:grid-cols-2 gap-4">
+          <SenderView
+            file={file}
+            onFileSelect={handleFileSelect}
+            onCreateRoom={createRoom}
+            roomId={roomId}
+            progress={progress}
+            transferSpeed={transferSpeed}
+            eta={eta}
+            senderHash={senderHash}
+          />
 
-          <div className="mt-4 h-3 bg-zinc-800 rounded-full overflow-hidden">
-            <div
-              className="h-full bg-violet-600 transition-all"
-              style={{ width: `${progress}%` }}
-            />
-          </div>
-
-          <p className="mt-2 text-sm text-zinc-400">{progress}%</p>
-
-          {senderHash && (
-            <div className="mt-4">
-              <p className="text-sm text-zinc-400">Sender SHA-256:</p>
-              <p className="break-all text-green-400 text-xs">{senderHash}</p>
-            </div>
-          )}
-
-          {receiverHash && (
-            <div className="mt-4">
-              <p className="text-sm text-zinc-400">Receiver SHA-256:</p>
-              <p className="break-all text-green-400 text-xs">{receiverHash}</p>
-            </div>
-          )}
-
-          {receiverHash && (
-            <p className="mt-3 font-semibold">
-              {verified ? "✅ File integrity verified" : "❌ Hash mismatch"}
-            </p>
-          )}
+          <ReceiverView
+            joinCode={joinCode}
+            onJoinCodeChange={setJoinCode}
+            onJoinRoom={joinRoom}
+            progress={progress}
+            transferSpeed={transferSpeed}
+            eta={eta}
+            receiverHash={receiverHash}
+            verified={verified}
+          />
         </div>
 
-        {/* Chat Panel */}
-        <div className="mt-6 p-4 bg-zinc-900 border border-zinc-700 rounded-lg">
-          <h3 className="text-xl font-semibold mb-4">Peer Chat</h3>
+        {/* Chat */}
+        <ChatBox
+          messages={messages}
+          sendChat={sendChat}
+          connectionStatus={connectionStatus}
+        />
 
-          <div className="h-48 overflow-y-auto bg-black border border-zinc-800 rounded-lg p-3 space-y-2">
-            {messages.length === 0 && (
-              <p className="text-zinc-500 text-sm">No messages yet.</p>
-            )}
-
-            {messages.map((msg, index) => (
-              <div
-                key={index}
-                className={`max-w-[75%] p-2 rounded-lg text-sm ${
-                  msg.side === "me"
-                    ? "ml-auto bg-violet-600 text-white"
-                    : "mr-auto bg-zinc-800 text-white"
-                }`}
-              >
-                {msg.text}
-              </div>
-            ))}
-          </div>
-
-          <div className="mt-3 flex gap-2">
-            <input
-              value={chatText}
-              onChange={(e) => setChatText(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter") handleSendChat();
-              }}
-              placeholder="Type message..."
-              className="flex-1 p-3 rounded-lg bg-black border border-zinc-700 outline-none"
-            />
-
-            <button
-              onClick={handleSendChat}
-              className="px-5 py-3 bg-violet-600 rounded-lg hover:bg-violet-500"
-            >
-              Send
-            </button>
-          </div>
-        </div>
       </main>
     </div>
   );
