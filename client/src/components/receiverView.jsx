@@ -18,7 +18,7 @@ function ReceiverView({
   verified,
 }) {
   const isTransferring = progress > 0 && progress < 100;
-  const isDone = progress === 100;
+  const isDone = progress === 100 && receiverHash;
 
   return (
     <div className="bg-zinc-900/50 border border-zinc-800 rounded-2xl p-6 space-y-4">
@@ -43,30 +43,33 @@ function ReceiverView({
           - tracking-[0.4em] spreads characters apart visually, making it easier
             to compare the code with what the sender shared.
       */}
-      <input
-        value={joinCode}
-        onChange={(e) => onJoinCodeChange(e.target.value.toUpperCase())}
-        maxLength={8}
-        placeholder="XXXXXXXX"
-        className="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-center
-          tracking-[0.4em] font-mono text-lg outline-none focus:border-violet-500 transition-colors"
-      />
+{!receiverHash && (
+  <>
+    <input
+      value={joinCode}
+      onChange={(e) => onJoinCodeChange(e.target.value.toUpperCase())}
+      maxLength={8}
+      placeholder="XXXXXXXX"
+      className="w-full p-3 rounded-xl bg-zinc-950 border border-zinc-700 text-center
+        tracking-[0.4em] font-mono text-lg outline-none focus:border-violet-500 transition-colors"
+    />
 
-      {/* Join button */}
-      <button
-        onClick={onJoinRoom}
-        disabled={joinCode.length !== 8}
-        className="w-full py-3 rounded-xl font-semibold text-sm transition-all
-          bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed"
-      >
-        Join & Receive
-      </button>
+    <button
+      onClick={onJoinRoom}
+      disabled={joinCode.length !== 8}
+      className="w-full py-3 rounded-xl font-semibold text-sm transition-all
+        bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed"
+    >
+      Join & Receive
+    </button>
+  </>
+)}
 
       {/* ── Transfer progress ──
           Hidden entirely until progress > 0. This prevents a jarring flash of
           "0% — 0.00 MB/s — ETA 0s" when the component first mounts.
       */}
-      {(isTransferring || isDone) && (
+      {(isTransferring || receiverHash) && (
         <div className="space-y-2 pt-2 border-t border-zinc-800">
           <div className="flex justify-between text-xs text-zinc-500 mb-1">
             <span>{progress}%</span>
