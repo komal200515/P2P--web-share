@@ -12,10 +12,10 @@ function formatEta(seconds) {
   return `${Math.floor(seconds / 60)}m ${Math.ceil(seconds % 60)}s`;
 }
 
-function SenderView({ file, onFileSelect, onCreateRoom, roomId, progress, transferSpeed, eta, senderHash }) {
+function SenderView({ file, onFileSelect, onCreateRoom, roomId, progress, transferSpeed, eta, senderHash,userRole, }) {
 // Computed flags for transfer progress and completion.
   const isTransferring = progress > 0 && progress < 100;
-  const isDone = progress === 100;
+  const isDone = progress === 100 && senderHash;
   // Tracks copy success state for temporary feedback.
   const [copied, setCopied] = useState(false);
   // Copies the room ID and shows a temporary confirmation.
@@ -52,7 +52,7 @@ function SenderView({ file, onFileSelect, onCreateRoom, roomId, progress, transf
       </button>
 
       {/* Room code with copy button */}
-      {roomId && (
+      {userRole === "sender" && roomId &&  (
         <div className="glass-dark p-4 text-center border border-violet-500/15 relative">
           <p className="text-xs text-white/25 uppercase tracking-[0.2em] mb-2">Room Code</p>
           {/* Extra letter spacing for better readability. */}
@@ -79,7 +79,7 @@ function SenderView({ file, onFileSelect, onCreateRoom, roomId, progress, transf
       )}
 
       {/* Transfer progress and status information. */} 
-      {(isTransferring || isDone) && (
+      {(isTransferring || senderHash) && (
         
         <div className="space-y-2 pt-1">
           <div className="flex justify-between items-center text-xs">
