@@ -6,7 +6,11 @@ import ReceiverView from "./components/receiverView";
 import { useWebRTC } from "./hooks/useWebRTC";
 
 // Socket connection to signaling server
-const socket = io("http://localhost:3000");
+const socket = io(
+  import.meta.env.DEV
+    ? "http://localhost:3000"
+    : "https://p2p-web-share-c956.onrender.com"
+);
 
 // Visual connection status badge
 function ConnectionBadge({ status }) {
