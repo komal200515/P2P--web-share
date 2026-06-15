@@ -6,14 +6,16 @@ import ReceiverView from "./components/receiverView";
 import { useWebRTC } from "./hooks/useWebRTC";
 
 // Socket connection to signaling server
+// DEV → local server, PROD → hosted signaling server on Render
 const socket = io(
   import.meta.env.DEV
     ? "http://localhost:3000"
     : "https://p2p-web-share-c956.onrender.com"
 );
 
-// Visual connection status badge
+// Visual connection status badge — renders a colored dot + label for each state
 function ConnectionBadge({ status }) {
+  // Maps each status string to its Tailwind classes and display label
   const config = {
     connected: {
       dot: "bg-green-400",
@@ -22,7 +24,7 @@ function ConnectionBadge({ status }) {
       label: "Connected",
     },
     waiting: {
-      dot: "bg-yellow-400 animate-pulse",
+      dot: "bg-yellow-400 animate-pulse", // pulse signals an in-progress handshake
       ring: "ring-yellow-500/30",
       text: "text-yellow-400",
       label: "Waiting",
@@ -35,6 +37,7 @@ function ConnectionBadge({ status }) {
     },
   };
 
+  // Fall back to disconnected style for any unknown status value
   const c = config[status] || config.disconnected;
 
   return (
@@ -48,11 +51,12 @@ function ConnectionBadge({ status }) {
 }
 
 function App() {
+  // file + roomId are held in both React state (for UI) and WebRTC refs (for sending)
   const [file, setFileState] = useState(null);
   const [roomId, setRoomIdState] = useState("");
-  const [joinCode, setJoinCode] = useState("");
-  const [message, setMessage] = useState("");
-  const [userRole, setUserRole] = useState("none");
+  const [joinCode, setJoinCode] = useState("");   // controlled input for the receiver's code entry
+  const [message, setMessage] = useState("");     // one-line status/error banner
+  const [userRole, setUserRole] = useState("none"); // "none" | "sender" | "receiver"
 
   // WebRTC state and actions
   const {
@@ -75,14 +79,15 @@ function App() {
     handleIceCandidate,
   } = useWebRTC(socket);
 
-  // Prevent stale references inside socket listeners
+  // Refs keep the latest function closures accessible inside socket listeners
+  // without needing to re-register those listeners on every render
   const startSenderRef = useRef(startSender);
   const startReceiverRef = useRef(startReceiver);
   const handleOfferRef = useRef(handleOffer);
   const handleAnswerRef = useRef(handleAnswer);
   const handleIceCandidateRef = useRef(handleIceCandidate);
 
-  // Keep refs synced with latest hook functions
+  // Keep refs synced with latest hook functions after every render
   useEffect(() => {
     startSenderRef.current = startSender;
     startReceiverRef.current = startReceiver;
@@ -91,14 +96,16 @@ function App() {
     handleIceCandidateRef.current = handleIceCandidate;
   });
 
-  // Register signaling events
+  // Register signaling events once on mount; clean up all listeners on unmount
   useEffect(() => {
+    // Server assigned a new room — store the code and prompt the sender to share it
     socket.on("room-created", ({ roomId }) => {
       setRoomIdState(roomId);
       setRoomId(roomId);
       setMessage("Room created. Share this code with the receiver.");
     });
 
+    // Receiver entered a valid code — store room and start the WebRTC receiver flow
     socket.on("join-success", ({ roomId }) => {
       setRoomIdState(roomId);
       setRoomId(roomId);
@@ -106,11 +113,13 @@ function App() {
       startReceiverRef.current();
     });
 
+    // Server tells the sender someone joined — kick off the sender WebRTC flow
     socket.on("receiver-joined", () => {
       setMessage("Receiver joined. Starting transfer...");
       startSenderRef.current();
     });
 
+    // WebRTC signaling messages — forwarded directly into the hook
     socket.on("offer", ({ offer }) =>
       handleOfferRef.current(offer)
     );
@@ -123,18 +132,12 @@ function App() {
       handleIceCandidateRef.current(candidate)
     );
 
-    socket.on("join-error", ({ message }) =>
-      setMessage(message)
-    );
+    // Simple server-side status events
+    socket.on("join-error",        ({ message }) => setMessage(message));
+    socket.on("transfer-done",     ()            => setMessage("Transfer completed."));
+    socket.on("peer-disconnected", ()            => setMessage("Peer disconnected."));
 
-    socket.on("transfer-done", () =>
-      setMessage("Transfer completed.")
-    );
-
-    socket.on("peer-disconnected", () =>
-      setMessage("Peer disconnected.")
-    );
-
+    // Remove all listeners on unmount to prevent memory leaks / duplicate handlers
     return () => {
       [
         "room-created",
@@ -150,13 +153,13 @@ function App() {
     };
   }, []);
 
-  // Store selected file locally and in WebRTC hook
+  // Syncs the selected file into both React state (UI) and the WebRTC hook (sending)
   const handleFileSelect = (selectedFile) => {
     setFileState(selectedFile);
     setFile(selectedFile);
   };
 
-  // Create a sharing room
+  // Validates a file is chosen, marks this client as sender, then asks server for a room
   const createRoom = () => {
     if (!file) {
       setMessage("Please select a file first.");
@@ -166,7 +169,7 @@ function App() {
     socket.emit("create-room");
   };
 
-  // Join an existing room
+  // Validates the 8-char code, marks this client as receiver, then asks server to join
   const joinRoom = () => {
     setUserRole("receiver");
     const code = joinCode.trim().toUpperCase();
@@ -182,7 +185,7 @@ function App() {
   return (
     <div className="min-h-screen bg-[#0a0a0f] text-white font-sans">
 
-      {/* Application header */}
+      {/* Application header — logo left, live connection badge right */}
       <header className="border-b border-zinc-800/60 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="w-8 h-8 rounded-lg bg-violet-600 flex items-center justify-center text-sm font-bold">
@@ -196,7 +199,7 @@ function App() {
         <ConnectionBadge status={connectionStatus} />
       </header>
 
-      {/* Hero section */}
+      {/* Hero section — static marketing copy, no interactive elements */}
       <div className="border-b border-zinc-800/40 px-6 py-12 text-center">
         <p className="text-xs font-semibold tracking-widest text-violet-400 uppercase mb-3">
           No servers. No limits.
@@ -214,20 +217,20 @@ function App() {
 
       <main className="max-w-4xl mx-auto p-6 space-y-4">
 
-        {/* System notifications */}
+        {/* System notification banner — hidden when message is empty */}
         {message && (
           <div className="px-4 py-3 bg-zinc-900 border border-zinc-700 rounded-xl text-sm text-zinc-400">
             {message}
           </div>
         )}
 
-        {/* Current transfer status */}
+        {/* Verbose hook status on the left, compact badge on the right */}
         <div className="flex items-center justify-between px-1">
           <p className="text-xs text-zinc-600">{status}</p>
           <ConnectionBadge status={connectionStatus} />
         </div>
 
-        {/* Sender and receiver panels */}
+        {/* Sender and receiver panels — stacked on mobile, side-by-side on md+ */}
         <div className="grid md:grid-cols-2 gap-4">
           <SenderView
             file={file}
@@ -238,7 +241,7 @@ function App() {
             transferSpeed={transferSpeed}
             eta={eta}
             senderHash={senderHash}
-            userRole={userRole}
+            userRole={userRole}  // lets SenderView dim/disable itself when role is "receiver"
           />
 
           <ReceiverView
@@ -253,7 +256,7 @@ function App() {
           />
         </div>
 
-        {/* Peer-to-peer chat */}
+        {/* Peer-to-peer chat — disabled until the data channel is open */}
         <ChatBox
           messages={messages}
           sendChat={sendChat}
