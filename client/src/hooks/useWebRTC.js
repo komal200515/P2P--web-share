@@ -39,6 +39,7 @@ export function useWebRTC(socket) {
   const dataChannelRef = useRef(null);  // RTCDataChannel for sending data
   const fileRef = useRef(null);         // File selected by the sender
   const roomIdRef = useRef(null);       // Shared room code for signalling
+  const isSenderRef = useRef(false);    // Track whether this peer is the sender
 
   // Receiver-side accumulator — chunks arrive out of order so we collect them all
   const receivedChunksRef = useRef([]);
@@ -166,14 +167,32 @@ export function useWebRTC(socket) {
     dataChannelRef.current = channel;
   };
 
-  // Sender flow: create data channel → build SDP offer → send to receiver via socket
-  const startSender = async () => {
+  // ─────────────────────────────────────────────────────────────────────────────
+  // SENDER FLOW
+  //
+  // Old behaviour: createOffer() was called immediately inside startSender(),
+  // so the SDP offer was emitted before the receiver had joined the room and
+  // set up its RTCPeerConnection — the offer was simply lost.
+  //
+  // New behaviour:
+  //   1. startSender() sets up the peer + data channel and tells the server
+  //      "sender-ready", but does NOT create an offer yet.
+  //   2. When the receiver joins and the server echoes "receiver-joined",
+  //      handleReceiverJoined() creates the offer and sends it.
+  //   3. The data-channel onopen handler now calls sendFile() so the file
+  //      transfer starts as soon as the channel is open.
+  // ─────────────────────────────────────────────────────────────────────────────
+
+  const startSender = () => {
+    isSenderRef.current = true;
     setConnectionStatus("waiting");
+    setStatus("Waiting for receiver to join...");
+
     const pc = createPeer();
     const channel = pc.createDataChannel("file-transfer");
     attachChannel(channel);
 
-    // Override onopen here so sendFile() starts immediately when the channel opens
+    // Override onopen: start sending the file as soon as the channel is ready
     channel.onopen = () => {
       console.log("[WebRTC] Sender channel open.");
       setConnectionStatus("connected");
@@ -181,15 +200,44 @@ export function useWebRTC(socket) {
       sendFile();
     };
 
+    // Notify the signalling server that this peer is the sender and is ready.
+    // The server will forward "receiver-joined" when the other peer calls join-room.
+    socket.emit("sender-ready", { roomId: roomIdRef.current });
+  };
+
+  // Called when the signalling server tells us the receiver has joined the room.
+  // Only the sender reacts to this event.
+  const handleReceiverJoined = async () => {
+    console.log("[WebRTC] Receiver joined — creating offer.");
+    setStatus("Receiver joined. Connecting...");
+
+    const pc = pcRef.current;
+    if (!pc) return;
+
     const offer = await pc.createOffer();
     await pc.setLocalDescription(offer);
     socket.emit("offer", { roomId: roomIdRef.current, offer });
   };
 
-  // Receiver flow: wait for the sender's data channel via ondatachannel event
+  // ─────────────────────────────────────────────────────────────────────────────
+  // RECEIVER FLOW
+  //
+  // Old behaviour: startReceiver() set up the peer connection but the socket
+  // event listeners (offer / answer / ice-candidate) were wired elsewhere,
+  // which created a race between joining the room and the offer arriving.
+  //
+  // New behaviour:
+  //   1. startReceiver() emits "join-room" so the server knows a receiver is
+  //      present and can fire "receiver-joined" to the sender.
+  //   2. The sender only creates its offer AFTER it receives "receiver-joined",
+  //      guaranteeing the receiver's RTCPeerConnection is ready first.
+  // ─────────────────────────────────────────────────────────────────────────────
+
   const startReceiver = () => {
+    isSenderRef.current = false;
     setConnectionStatus("waiting");
-    setStatus("Waiting for sender...");
+    setStatus("Joining room — waiting for sender...");
+
     const pc = createPeer();
 
     pc.ondatachannel = (event) => {
@@ -199,11 +247,15 @@ export function useWebRTC(socket) {
         setStatus("Connected. Waiting for file...");
       };
     };
+
+    // Tell the server a receiver has joined; server will notify the sender
+    socket.emit("join-room", { roomId: roomIdRef.current });
   };
 
   // Signalling: receiver processes the sender's SDP offer and replies with an answer
   const handleOffer = async (offer) => {
     const pc = pcRef.current;
+    if (!pc) return;
     await pc.setRemoteDescription(new RTCSessionDescription(offer));
     const answer = await pc.createAnswer();
     await pc.setLocalDescription(answer);
@@ -327,5 +379,6 @@ export function useWebRTC(socket) {
     handleOffer,
     handleAnswer,
     handleIceCandidate,
+    handleReceiverJoined, // ← new: wire this to the "receiver-joined" socket event
   };
 }
