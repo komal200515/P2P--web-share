@@ -7,7 +7,6 @@ const CHUNK_SIZE = 64 * 1024;
 const STUN_CONFIG = {
   iceServers: [
     { urls: "stun:stun.l.google.com:19302" },
-
     {
       urls: "turn:openrelay.metered.ca:80",
       username: "openrelayproject",
