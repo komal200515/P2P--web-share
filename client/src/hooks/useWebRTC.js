@@ -291,6 +291,19 @@ export function useWebRTC(socket) {
     channel.send(JSON.stringify({ type: "chat", text }));
     setMessages((prev) => [...prev, { text, side: "me" }]);
   };
+  const resetTransferState = () => {
+  setProgress(0);
+  setStatus("Idle");
+  setTransferSpeed(0);
+  setEta(null);
+  setSenderHash("");
+  setReceiverHash("");
+  setVerified(false);
+
+  receivedChunksRef.current = [];
+  incomingMetaRef.current = null;
+  transferStartRef.current = null;
+};
 
   return {
     progress,
@@ -310,5 +323,6 @@ export function useWebRTC(socket) {
     handleOffer,
     handleAnswer,
     handleIceCandidate,
+    resetTransferState,
   };
 }

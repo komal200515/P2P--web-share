@@ -53,6 +53,7 @@ function App() {
     handleOffer,
     handleAnswer,
     handleIceCandidate,
+    resetTransferState,
   } = useWebRTC(socket);
 
   // Keep refs fresh so socket listeners never go stale
@@ -106,10 +107,15 @@ function App() {
     setFile(selectedFile);
   };
   // Create a sharing room
-  const createRoom = () => {
-    if (!file) { setMessage("Please select a file first."); return; }
-    socket.emit("create-room");
-  };
+const handleFileSelect = (selectedFile) => {
+  resetTransferState();
+
+  setMessage("");
+  setRoomIdState("");
+
+  setFileState(selectedFile);
+  setFile(selectedFile);
+};
 
   const joinRoom = () => {
     const code = joinCode.trim().toUpperCase();
